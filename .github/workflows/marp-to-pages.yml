@@ -1,0 +1,83 @@
+name: marp-to-pages
+concurrency: marp-to-pages
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - closed
+jobs:
+  build-index:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Copy images
+        run: mkdir build && cp -R img build/img
+
+      - name: Marp Build (README)
+        uses: docker://marpteam/marp-cli:v1.7.0
+        with:
+          args: README.md -o build/index.html
+        env:
+          MARP_USER: root:root
+
+      - name: Deploy preview
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: ./build/
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+
+      - name: Deploy production
+        if: ${{ github.event_name == 'push' }}
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: ./build/
+          clean-exclude: pr-preview/
+
+  build-slides:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - id: list-slides
+        run: -|
+          for file in $(find . -name '*.md' -not -path './README.md' -not -path './.github/*' -not -path './build/*'); do
+            echo "::set-output name=files::$file"
+          done
+      - name: Copy images
+        run: mkdir build && cp -R img build/img
+      - name: Marp Build (Slides)
+        run: -|
+          for file in ${{ steps.list-slides.outputs.files }}; do
+            echo "Building $file"
+            docker run --rm \
+              -e MARP_USER=root:root \
+              -v $(pwd):/home/marp/app \
+              -u root:root \
+              marpteam/marp-cli:v1.7.0 \
+              $file \
+              -o build/${file%.md}.html
+          done
+      - name: Deploy preview
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: ./build/
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+
+      - name: Deploy production
+        if: ${{ github.event_name == 'push' }}
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: ./build/
+          clean-exclude: pr-preview/
